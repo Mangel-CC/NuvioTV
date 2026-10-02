@@ -15,6 +15,7 @@ import androidx.media3.extractor.PositionHolder
 import androidx.media3.extractor.SeekMap
 import androidx.media3.extractor.TrackOutput
 import androidx.media3.extractor.text.DefaultSubtitleParserFactory
+import com.nuvio.tv.core.player.chapters.EmbeddedChapterListener
 import com.nuvio.tv.core.player.dvmkv.MatroskaExtractor as DvMatroskaExtractor
 import java.io.EOFException
 import java.io.IOException
@@ -47,7 +48,8 @@ internal class DolbyVisionExtractorsFactory(
     private val delegate: ExtractorsFactory,
     private val config: DolbyVisionConversionConfig,
     private val stripDvRpu: Boolean = false,
-    private val stripHdr10PlusSei: Boolean = false
+    private val stripHdr10PlusSei: Boolean = false,
+    private val chapterListener: EmbeddedChapterListener? = null
 ) : ExtractorsFactory {
 
     override fun createExtractors(): Array<Extractor> =
@@ -74,7 +76,7 @@ internal class DolbyVisionExtractorsFactory(
                     stripRpuOnly = stripDvRpu && !config.active,
                     stripHdr10PlusSei = stripHdr10PlusSei,
                 )
-            )
+            ).also { it.setChapterListener(chapterListener) }
         }
         if (!config.active && !stripDvRpu && !stripHdr10PlusSei) return extractor
         val nalFormat = nalFormatFor(extractor) ?: return extractor

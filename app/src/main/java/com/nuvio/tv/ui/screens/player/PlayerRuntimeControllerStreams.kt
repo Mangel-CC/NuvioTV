@@ -1507,12 +1507,11 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(
 
     playbackStartedForParentalGuide = false
     skipIntervals = emptyList()
-    skipIntroFetchedKey = null
     lastActiveSkipType = null
     autoSkippedIntervalKeys.clear()
 
     fetchParentalGuide(contentId, contentType, currentSeason, currentEpisode)
-    fetchSkipIntervals(contentId, currentSeason, currentEpisode)
+    refreshChapterSkipIntervals()
 
     queuePlaybackRawEventLine(
         "LINK_SELECTED: source=in_player_source host=${playbackUrl.safeStreamTraceHost()} " +
@@ -1619,12 +1618,11 @@ private fun PlayerRuntimeController.switchToEpisodeStreamCommon(
 
     playbackStartedForParentalGuide = false
     skipIntervals = emptyList()
-    skipIntroFetchedKey = null
     lastActiveSkipType = null
     autoSkippedIntervalKeys.clear()
 
     fetchParentalGuide(contentId, contentType, currentSeason, currentEpisode)
-    fetchSkipIntervals(contentId, currentSeason, currentEpisode)
+    refreshChapterSkipIntervals()
 }
 
 internal fun PlayerRuntimeController.showEpisodeStreamPicker(video: Video, forceRefresh: Boolean = true) {

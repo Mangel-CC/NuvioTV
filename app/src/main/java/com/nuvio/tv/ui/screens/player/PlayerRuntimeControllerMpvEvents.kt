@@ -134,6 +134,7 @@ internal fun PlayerRuntimeController.onMpvEvent(eventId: Int, data: MPVNode) {
     when (eventId) {
         MPV.mpvEvent.MPV_EVENT_START_FILE -> onMpvStartFile(data)
         MPV.mpvEvent.MPV_EVENT_END_FILE -> onMpvEndFile(data)
+        MPV.mpvEvent.MPV_EVENT_FILE_LOADED -> loadMpvChapters()
         MPV.mpvEvent.MPV_EVENT_SHUTDOWN -> onMpvCoreShutdown()
         else -> Unit
     }

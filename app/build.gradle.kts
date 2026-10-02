@@ -80,6 +80,11 @@ fun truthy(value: String?): Boolean {
         value.equals("yes", ignoreCase = true)
 }
 
+// Package name / launcher label of this fork (Mangel-CC/NuvioTV), distinct from the official
+// com.nuvio.tv so both apps can be installed at the same time.
+val FORK_APPLICATION_ID = "com.nuvio.tv.chapters"
+val FORK_APP_LABEL = "Nuvio Chapters"
+
 val buildingAppBundle = gradle.startParameter.taskNames.any { it.contains("bundle", ignoreCase = true) }
 val useDebugReleaseSigning = env("CI_USE_DEBUG_SIGNING").equals("true", ignoreCase = true)
 val useLocalFfmpegDecoder = truthy(
@@ -108,6 +113,7 @@ android {
         targetSdk = 36
         versionCode = 1066
         versionName = "1.1.0-beta.3"
+        manifestPlaceholders["appLabel"] = "@string/app_name"
 
         buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
         buildConfigField("String", "INTRODB_API_URL", "\"${localProperties.getProperty("INTRODB_API_URL", "")}\"")
@@ -148,7 +154,8 @@ android {
         buildConfigField("String", "SENTRY_DSN", buildConfigString(sentryDsn))
 
         // In-app updater (GitHub Releases)
-        buildConfigField("String", "GITHUB_OWNER", "\"NuvioMedia\"")
+        // Fork: check this fork's releases, not the official app's (different package name).
+        buildConfigField("String", "GITHUB_OWNER", "\"Mangel-CC\"")
         buildConfigField("String", "GITHUB_REPO", "\"NuvioTV\"")
     }
 
@@ -156,6 +163,9 @@ android {
     productFlavors {
         create("full") {
             dimension = "distribution"
+            // Fork build: own package + label so it installs side by side with the official app.
+            applicationId = FORK_APPLICATION_ID
+            manifestPlaceholders["appLabel"] = FORK_APP_LABEL
             buildConfigField("boolean", "FEATURE_PLUGINS_ENABLED", "true")
             buildConfigField("boolean", "FEATURE_IN_APP_UPDATES_ENABLED", "true")
             buildConfigField("boolean", "FEATURE_IN_APP_TRAILERS_ENABLED", "true")
@@ -336,7 +346,7 @@ android {
 androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
         val isPlaystore = variant.productFlavors.any { it.second == "playstore" }
-        variant.applicationId.set(if (isPlaystore) "com.nuvio.appdebug" else "com.nuviodebug.com")
+        variant.applicationId.set(if (isPlaystore) "com.nuvio.appdebug" else FORK_APPLICATION_ID)
     }
 }
 

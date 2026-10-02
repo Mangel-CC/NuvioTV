@@ -458,6 +458,7 @@ internal fun PlayerRuntimeController.showStreamSourceIndicator(stream: Stream) {
 }
 
 internal fun PlayerRuntimeController.updateActiveSkipInterval(positionMs: Long) {
+    maybeRefreshChapterSkipIntervalsForDuration()
     if (skipIntervals.isEmpty()) {
         if (_uiState.value.activeSkipInterval != null) {
             _uiState.update { it.copy(activeSkipInterval = null, skipIntervalDismissed = false) }

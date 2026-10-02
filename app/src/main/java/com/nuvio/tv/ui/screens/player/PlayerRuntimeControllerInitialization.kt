@@ -160,6 +160,7 @@ internal fun PlayerRuntimeController.initializePlayer(
         return
     }
     mpvMediaLoadPrepared = false
+    val embeddedChapterListener = beginEmbeddedChapterSession()
 
     scope.launch {
         try {
@@ -957,8 +958,11 @@ internal fun PlayerRuntimeController.initializePlayer(
                             manualDv81 = manualDv81Selected && !dv7Mode1Forced
                         ),
                         stripDvRpu = stripDvRpuEnabled,
-                        stripHdr10PlusSei = stripHdr10PlusSei
+                        stripHdr10PlusSei = stripHdr10PlusSei,
+                        chapterListener = embeddedChapterListener
                     ).let { autoSyncExtractorsFactory(it, url, headers) } // AutoSync hook
+            // MKV chapters come from the extractor above; MP4 chapters are read separately.
+            maybeProbeMp4Chapters(url, headers)
 
             setLoadingStatus(
                 phase = "building_player",

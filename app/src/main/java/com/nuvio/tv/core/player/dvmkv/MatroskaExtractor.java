@@ -59,6 +59,8 @@ import androidx.media3.extractor.TrueHdSampleRechunker;
 import androidx.media3.extractor.text.SubtitleParser;
 import androidx.media3.extractor.text.SubtitleTranscodingExtractorOutput;
 import com.google.common.collect.ImmutableList;
+import com.nuvio.tv.core.player.chapters.EmbeddedChapter;
+import com.nuvio.tv.core.player.chapters.EmbeddedChapterListener;
 import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
@@ -68,6 +70,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -390,6 +393,19 @@ public class MatroskaExtractor implements Extractor {
   private static final int ID_WHITE_POINT_CHROMATICITY_Y = 0x55D8;
   private static final int ID_LUMNINANCE_MAX = 0x55D9;
   private static final int ID_LUMNINANCE_MIN = 0x55DA;
+  // Chapters (ported from Media3 1.11 MatroskaExtractor, delivered via EmbeddedChapterListener).
+  private static final int ID_CHAPTERS = 0x1043A770;
+  private static final int ID_EDITION_ENTRY = 0x45B9;
+  private static final int ID_EDITION_FLAG_HIDDEN = 0x45BD;
+  private static final int ID_EDITION_FLAG_DEFAULT = 0x45DB;
+  private static final int ID_CHAPTER_ATOM = 0xB6;
+  private static final int ID_CHAPTER_UID = 0x73C4;
+  private static final int ID_CHAPTER_TIME_START = 0x91;
+  private static final int ID_CHAPTER_TIME_END = 0x92;
+  private static final int ID_CHAPTER_FLAG_HIDDEN = 0x98;
+  private static final int ID_CHAPTER_FLAG_ENABLED = 0x4598;
+  private static final int ID_CHAPTER_DISPLAY = 0x80;
+  private static final int ID_CHAP_STRING = 0x85;
 
   /**
    * BlockAddID value for ITU T.35 metadata in a VP9 track. See also
@@ -548,6 +564,30 @@ public class MatroskaExtractor implements Extractor {
   private final boolean parseSubtitlesDuringExtraction;
   private final SubtitleParser.Factory subtitleParserFactory;
   @Nullable private final DolbyVisionSampleTransformer dolbyVisionSampleTransformer;
+
+  // Chapter parsing state.
+  @Nullable private EmbeddedChapterListener chapterListener;
+  private final ArrayDeque<ChapterEntry> chapterStack = new ArrayDeque<>();
+  @Nullable private List<ChapterEntry> currentEditionChapters;
+  private boolean currentEditionIsDefault;
+  private boolean currentEditionIsHidden;
+  @Nullable private List<ChapterEntry> selectedEditionChapters;
+  private boolean selectedEditionIsDefault;
+  private boolean chaptersReported;
+
+  /**
+   * Sets a listener that receives the top-level chapters of the default (or first) edition once
+   * the Chapters element has been parsed. Must be called before extraction starts.
+   */
+  public void setChapterListener(@Nullable EmbeddedChapterListener chapterListener) {
+    this.chapterListener = chapterListener;
+  }
+
+  /** Returns the chapter listener set with {@link #setChapterListener}, if any. */
+  @Nullable
+  public EmbeddedChapterListener getChapterListener() {
+    return chapterListener;
+  }
 
   /** Returns the Dolby Vision sample transformer, if one was provided at construction time. */
   @Nullable
@@ -918,6 +958,10 @@ public class MatroskaExtractor implements Extractor {
       case ID_PROJECTION:
       case ID_COLOUR:
       case ID_MASTERING_METADATA:
+      case ID_CHAPTERS:
+      case ID_EDITION_ENTRY:
+      case ID_CHAPTER_ATOM:
+      case ID_CHAPTER_DISPLAY:
         return EbmlProcessor.ELEMENT_TYPE_MASTER;
       case ID_EBML_READ_VERSION:
       case ID_DOC_TYPE_READ_VERSION:
@@ -961,11 +1005,19 @@ public class MatroskaExtractor implements Extractor {
       case ID_MAX_FALL:
       case ID_PROJECTION_TYPE:
       case ID_BLOCK_ADD_ID:
+      case ID_EDITION_FLAG_HIDDEN:
+      case ID_EDITION_FLAG_DEFAULT:
+      case ID_CHAPTER_UID:
+      case ID_CHAPTER_TIME_START:
+      case ID_CHAPTER_TIME_END:
+      case ID_CHAPTER_FLAG_HIDDEN:
+      case ID_CHAPTER_FLAG_ENABLED:
         return EbmlProcessor.ELEMENT_TYPE_UNSIGNED_INT;
       case ID_DOC_TYPE:
       case ID_NAME:
       case ID_CODEC_ID:
       case ID_LANGUAGE:
+      case ID_CHAP_STRING:
         return EbmlProcessor.ELEMENT_TYPE_STRING;
       case ID_SEEK_ID:
       case ID_BLOCK_ADD_ID_EXTRA_DATA:
@@ -1005,7 +1057,11 @@ public class MatroskaExtractor implements Extractor {
    */
   @CallSuper
   protected boolean isLevel1Element(int id) {
-    return id == ID_SEGMENT_INFO || id == ID_CLUSTER || id == ID_CUES || id == ID_TRACKS;
+    return id == ID_SEGMENT_INFO
+        || id == ID_CLUSTER
+        || id == ID_CUES
+        || id == ID_TRACKS
+        || id == ID_CHAPTERS;
   }
 
   /**
@@ -1090,6 +1146,15 @@ public class MatroskaExtractor implements Extractor {
       case ID_MASTERING_METADATA:
         getCurrentTrack(id).hasColorInfo = true;
         break;
+      case ID_EDITION_ENTRY:
+        currentEditionChapters = new ArrayList<>();
+        currentEditionIsDefault = false;
+        currentEditionIsHidden = false;
+        chapterStack.clear();
+        break;
+      case ID_CHAPTER_ATOM:
+        chapterStack.push(new ChapterEntry());
+        break;
       default:
         break;
     }
@@ -1128,6 +1193,35 @@ public class MatroskaExtractor implements Extractor {
                   pendingSeekHeadPosition,
                   seekPositionAfterBuildingCues);
         }
+        break;
+      case ID_CHAPTER_ATOM:
+        {
+          ChapterEntry chapter = chapterStack.poll();
+          // Only top-level atoms are kept: nested atoms are sub-chapters of their parent.
+          if (chapter != null
+              && chapterStack.isEmpty()
+              && currentEditionChapters != null
+              && chapter.enabled
+              && chapter.timeStartNs != C.TIME_UNSET) {
+            currentEditionChapters.add(chapter);
+          }
+        }
+        break;
+      case ID_EDITION_ENTRY:
+        if (currentEditionChapters != null && !currentEditionChapters.isEmpty()) {
+          boolean preferThis =
+              selectedEditionChapters == null
+                  || (currentEditionIsDefault && !selectedEditionIsDefault);
+          if (preferThis && !(currentEditionIsHidden && selectedEditionChapters != null)) {
+            selectedEditionChapters = currentEditionChapters;
+            selectedEditionIsDefault = currentEditionIsDefault;
+          }
+        }
+        currentEditionChapters = null;
+        chapterStack.clear();
+        break;
+      case ID_CHAPTERS:
+        maybeReportChapters();
         break;
       case ID_SEEK_HEAD:
         maybeFollowPendingIndexAfterSeekHead();
@@ -1347,6 +1441,37 @@ public class MatroskaExtractor implements Extractor {
   @CallSuper
   protected void integerElement(int id, long value) throws ParserException {
     switch (id) {
+      case ID_EDITION_FLAG_DEFAULT:
+        currentEditionIsDefault = value == 1;
+        break;
+      case ID_EDITION_FLAG_HIDDEN:
+        currentEditionIsHidden = value == 1;
+        break;
+      case ID_CHAPTER_UID:
+        if (!chapterStack.isEmpty()) {
+          chapterStack.peek().uid = value;
+        }
+        break;
+      case ID_CHAPTER_TIME_START:
+        if (!chapterStack.isEmpty()) {
+          chapterStack.peek().timeStartNs = value;
+        }
+        break;
+      case ID_CHAPTER_TIME_END:
+        if (!chapterStack.isEmpty()) {
+          chapterStack.peek().timeEndNs = value;
+        }
+        break;
+      case ID_CHAPTER_FLAG_HIDDEN:
+        if (!chapterStack.isEmpty()) {
+          chapterStack.peek().flagHidden = value == 1;
+        }
+        break;
+      case ID_CHAPTER_FLAG_ENABLED:
+        if (!chapterStack.isEmpty()) {
+          chapterStack.peek().enabled = value != 0;
+        }
+        break;
       case ID_EBML_READ_VERSION:
         // Validate that EBMLReadVersion is supported. This extractor only supports v1.
         if (value != 1) {
@@ -1680,6 +1805,12 @@ public class MatroskaExtractor implements Extractor {
         break;
       case ID_LANGUAGE:
         getCurrentTrack(id).language = value;
+        break;
+      case ID_CHAP_STRING:
+        // Keep the first ChapterDisplay title, like Media3 1.11.
+        if (!chapterStack.isEmpty() && chapterStack.peek().chapString == null) {
+          chapterStack.peek().chapString = value;
+        }
         break;
       default:
         break;
@@ -2966,6 +3097,46 @@ public class MatroskaExtractor implements Extractor {
       value = (value << 8) | (earlyDtsScanBuffer[offset + i] & 0xFF);
     }
     return value;
+  }
+
+  private void maybeReportChapters() {
+    EmbeddedChapterListener listener = chapterListener;
+    List<ChapterEntry> entries = selectedEditionChapters;
+    if (chaptersReported || listener == null || entries == null || entries.isEmpty()) {
+      return;
+    }
+    chaptersReported = true;
+    List<EmbeddedChapter> chapters = new ArrayList<>(entries.size());
+    for (ChapterEntry entry : entries) {
+      if (entry.flagHidden) {
+        continue;
+      }
+      long startMs = Util.usToMs(entry.timeStartNs / 1000);
+      @Nullable
+      Long endMs =
+          entry.timeEndNs != C.TIME_UNSET && entry.timeEndNs > entry.timeStartNs
+              ? Util.usToMs(entry.timeEndNs / 1000)
+              : null;
+      chapters.add(new EmbeddedChapter(startMs, endMs, entry.chapString));
+    }
+    if (chapters.isEmpty()) {
+      return;
+    }
+    try {
+      listener.onChapters(Collections.unmodifiableList(chapters));
+    } catch (RuntimeException e) {
+      Log.w(TAG, "Chapter listener failed", e);
+    }
+  }
+
+  /** Holds data corresponding to a single chapter atom. */
+  private static final class ChapterEntry {
+    public long uid;
+    public long timeStartNs = C.TIME_UNSET;
+    public long timeEndNs = C.TIME_UNSET;
+    public boolean flagHidden;
+    public boolean enabled = true;
+    @Nullable public String chapString;
   }
 
   /** Passes events through to the outer {@link MatroskaExtractor}. */

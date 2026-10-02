@@ -114,7 +114,7 @@ private fun ExtractorsFactory.withAssMkvSupportCompat(
                     subtitleParserFactory = subtitleParserFactory,
                     assHandler = assHandler,
                     dolbyVisionSampleTransformer = underlying.dolbyVisionSampleTransformer
-                )
+                ).also { it.setChapterListener(underlying.chapterListener) }
             }
         }
         extractors

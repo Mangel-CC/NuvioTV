@@ -236,6 +236,27 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
         return (seconds * 1000.0).roundToLong().coerceAtLeast(0L)
     }
 
+    /** Chapters of the loaded file from mpv's chapter-list (start times only; ends are derived). */
+    fun readChapters(): List<com.nuvio.tv.core.player.chapters.EmbeddedChapter> {
+        if (!initialized) return emptyList()
+        val count = mpv.getPropertyInt("chapter-list/count") ?: return emptyList()
+        if (count <= 0) return emptyList()
+        val starts = ArrayList<Pair<Long, String?>>(count)
+        for (i in 0 until count.coerceAtMost(512)) {
+            val seconds = mpv.getPropertyDouble("chapter-list/$i/time") ?: continue
+            val title = mpv.getPropertyString("chapter-list/$i/title")
+            starts += (seconds * 1000.0).roundToLong().coerceAtLeast(0L) to title
+        }
+        val sorted = starts.sortedBy { it.first }
+        return sorted.mapIndexed { index, (startMs, title) ->
+            com.nuvio.tv.core.player.chapters.EmbeddedChapter(
+                startMs = startMs,
+                endMs = sorted.getOrNull(index + 1)?.first,
+                title = title
+            )
+        }
+    }
+
     /** Live HLS/DASH in mpv is typically reported as not seekable. VOD HLS is seekable. */
     fun isLiveStreamNow(): Boolean {
         if (!initialized) return false
