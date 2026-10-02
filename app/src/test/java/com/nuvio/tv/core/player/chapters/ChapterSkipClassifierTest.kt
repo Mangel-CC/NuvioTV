@@ -21,10 +21,10 @@ class ChapterSkipClassifierTest {
         )
         val intervals = ChapterSkipClassifier.toSkipIntervals(chapters, 1_420_000L, isMovie = false)
 
-        assertEquals(listOf("intro", "outro", "preview"), intervals.map { it.type })
-        assertEquals(90.0, intervals[0].startTime, 0.0)
-        assertEquals(180.0, intervals[0].endTime, 0.0)
-        assertEquals(1420.0, intervals[2].endTime, 0.0)
+        assertEquals(listOf("prologue", "intro", "outro", "preview"), intervals.map { it.type })
+        assertEquals(90.0, intervals[1].startTime, 0.0)
+        assertEquals(180.0, intervals[1].endTime, 0.0)
+        assertEquals(1420.0, intervals[3].endTime, 0.0)
         assertTrue(intervals.all { it.provider == ChapterSkipClassifier.PROVIDER })
     }
 
@@ -80,5 +80,36 @@ class ChapterSkipClassifierTest {
     fun `implausibly long intro chapters are rejected`() {
         val chapters = listOf(chapter(0, "Intro", endSec = 900))
         assertTrue(ChapterSkipClassifier.toSkipIntervals(chapters, 1_400_000L, isMovie = false).isEmpty())
+    }
+
+    @Test
+    fun `bare Intro before an explicit Opening is the cold open and is not skipped`() {
+        val chapters = listOf(
+            chapter(0, "Intro"),
+            chapter(150, "Opening"),
+            chapter(240, "Part A"),
+            chapter(1300, "Ending")
+        )
+        val intervals = ChapterSkipClassifier.toSkipIntervals(chapters, 1_420_000L, isMovie = false)
+
+        assertEquals(listOf("intro", "outro"), intervals.map { it.type })
+        assertEquals(150.0, intervals[0].startTime, 0.0)
+    }
+
+    @Test
+    fun `bare Intro is the opening when there is no Opening chapter`() {
+        val chapters = listOf(chapter(0, "Prologue"), chapter(60, "Intro"), chapter(150, "Part A"))
+        val types = ChapterSkipClassifier.toSkipIntervals(chapters, 1_420_000L, isMovie = false).map { it.type }
+
+        assertEquals(listOf("prologue", "intro"), types)
+    }
+
+    @Test
+    fun `prologue gets its own manual-only type`() {
+        val chapters = listOf(chapter(0, "Prologue"), chapter(95, "OP"), chapter(185, "Part A"))
+        val intervals = ChapterSkipClassifier.toSkipIntervals(chapters, 1_420_000L, isMovie = false)
+
+        assertEquals(listOf(ChapterSkipClassifier.TYPE_PROLOGUE, "intro"), intervals.map { it.type })
+        assertEquals(null, com.nuvio.tv.data.local.AutoSkipSegmentType.fromSkipIntervalType(ChapterSkipClassifier.TYPE_PROLOGUE))
     }
 }
