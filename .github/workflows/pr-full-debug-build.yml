@@ -5,6 +5,9 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [dev]
   workflow_dispatch:
+  # Fork: build the embedded-chapters branch on every push.
+  push:
+    branches: [claude/nuviotv-embedded-chapters-m6gefy]
 
 permissions:
   contents: read
