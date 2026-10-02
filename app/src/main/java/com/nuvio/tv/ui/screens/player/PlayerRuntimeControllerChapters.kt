@@ -9,6 +9,7 @@ import com.nuvio.tv.core.player.chapters.Mp4ChapterProbe
 import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -20,6 +21,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  */
 
 private const val CHAPTER_PROBE_TIMEOUT_MS = 20_000L
+private const val FIRST_FRAME_POLL_MS = 500L
 
 /**
  * Starts a new chapter session for a player (re)initialisation and returns the listener the
@@ -46,6 +48,13 @@ internal fun PlayerRuntimeController.maybeProbeMp4Chapters(url: String, headers:
     if (!isMp4ChapterProbeCandidate(url)) return
     val generation = embeddedChapterGeneration
     scope.launch {
+        // Wait until this stream is playing so the extra range requests never compete with
+        // startup (some hosts limit concurrent connections per file).
+        while (!hasRenderedFirstFrame) {
+            if (generation != embeddedChapterGeneration) return@launch
+            delay(FIRST_FRAME_POLL_MS)
+        }
+        if (generation != embeddedChapterGeneration) return@launch
         val chapters = withContext(Dispatchers.IO) {
             withTimeoutOrNull(CHAPTER_PROBE_TIMEOUT_MS) {
                 val uri = Uri.parse(url)
