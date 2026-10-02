@@ -112,4 +112,32 @@ class ChapterSkipClassifierTest {
         assertEquals(listOf(ChapterSkipClassifier.TYPE_PROLOGUE, "intro"), intervals.map { it.type })
         assertEquals(null, com.nuvio.tv.data.local.AutoSkipSegmentType.fromSkipIntervalType(ChapterSkipClassifier.TYPE_PROLOGUE))
     }
+
+    @Test
+    fun `spanish portuguese french italian and german names are recognised`() {
+        val titles = mapOf(
+            "Créditos" to "outro",
+            "Crédits" to "outro",
+            "Créditos finales" to "outro",
+            "Créditos iniciales" to "intro",
+            "Apertura" to "intro",
+            "Abertura" to "intro",
+            "Encerramento" to "outro",
+            "Générique de début" to "intro",
+            "Générique de fin" to "outro",
+            "Générique" to "outro",
+            "Sigla finale" to "outro",
+            "Sigla" to "intro",
+            "Resumen" to "recap",
+            "Avance" to "preview",
+            "Próximo episodio" to "preview",
+            "Abspann" to "outro",
+            "Vorschau" to "preview",
+        )
+        for ((title, expected) in titles) {
+            val chapters = listOf(chapter(0, "Part A"), chapter(600, title), chapter(690, "Part B"))
+            val types = ChapterSkipClassifier.toSkipIntervals(chapters, 1_400_000L, isMovie = false).map { it.type }
+            assertEquals(title, listOf(expected), types)
+        }
+    }
 }
