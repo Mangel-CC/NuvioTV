@@ -450,11 +450,12 @@ internal fun PlayerRuntimeController.evaluatePostPlayOverlayVisibility(positionM
  * Next-episode card driven by the credits chapter of the file (see
  * [PlayerNextEpisodeRules.chapterCreditsWindow]):
  * - sources are preloaded shortly before the credits;
- * - the card appears when the credits start and is hidden when they end if a post-credits scene
- *   or preview follows, so it never covers that scene; auto-play then happens at the natural end
- *   of the file (see [resetPostPlayStateAfterPlaybackEnded]);
- * - with auto-play and nothing after the credits, the source search runs silently and the card
- *   only appears once a source was found (countdown).
+ * - with nothing after the credits, the card appears when they start (the episode is over);
+ * - with a post-credits scene or preview after them, no card is shown during the credits or that
+ *   scene, so its absence signals that something follows; the card appears at the natural end of
+ *   the file (see [showNextEpisodeAfterPostCreditsScene]);
+ * - with auto-play, the source search runs silently while the video plays and the card only
+ *   appears once a source was found (countdown).
  */
 private fun PlayerRuntimeController.evaluateChapterCreditsPostPlay(
     state: PlayerUiState,
@@ -462,15 +463,7 @@ private fun PlayerRuntimeController.evaluateChapterCreditsPostPlay(
     window: PlayerNextEpisodeRules.ChapterCreditsWindow
 ) {
     val nextEpisode = state.nextEpisode ?: return
-    val mode = state.postPlayMode
-
-    if (window.hasContentAfter && positionMs >= window.endMs) {
-        if (mode is PostPlayMode.AutoPlay && !mode.searching && mode.countdownSec == null) {
-            _uiState.update { it.copy(postPlayMode = null, postPlayDismissedForCurrentEpisode = true) }
-        }
-        return
-    }
-    if (mode != null || state.postPlayDismissedForCurrentEpisode) return
+    if (state.postPlayMode != null || state.postPlayDismissedForCurrentEpisode) return
     if (nextEpisodeAutoPlayJob?.isActive == true) return
 
     if ((streamAutoPlayNextEpisodeEnabledSetting || preloadNextEpisodeSourcesSetting) &&
@@ -479,8 +472,33 @@ private fun PlayerRuntimeController.evaluateChapterCreditsPostPlay(
         val leadMs = maxOf(streamAutoPlayTimeoutSecondsSetting.toLong() * 1_000L, CREDITS_PRELOAD_LEAD_MS)
         if (positionMs >= window.startMs - leadMs) preloadNextEpisodeSources()
     }
-    if (positionMs < window.startMs) return
+    if (window.hasContentAfter || positionMs < window.startMs) return
 
+    showChapterNextEpisodeCard(nextEpisode, silentSearch = true)
+}
+
+/**
+ * Called when the file ends naturally: if the credits chapter was followed by a post-credits
+ * scene or preview, the next-episode card was held back until now. Returns true when handled.
+ */
+internal fun PlayerRuntimeController.showNextEpisodeAfterPostCreditsScene(): Boolean {
+    val state = _uiState.value
+    if (state.postPlayMode != null || state.postPlayDismissedForCurrentEpisode) return false
+    if (nextEpisodeAutoPlayJob?.isActive == true) return false
+    val nextEpisode = state.nextEpisode ?: return false
+    if (nextEpisodeVideo == null) return false
+    val durationMs = maxOf(currentPlaybackDurationMs(), lastKnownDuration)
+    val window = PlayerNextEpisodeRules.chapterCreditsWindow(skipIntervals, durationMs) ?: return false
+    if (!window.hasContentAfter) return false
+    if (!streamAutoPlayNextEpisodeEnabledSetting) return false // the end-of-playback prompt handles it
+    return showChapterNextEpisodeCard(nextEpisode, silentSearch = false)
+}
+
+/** Shows the still-watching prompt or the next-episode card; returns false when neither applies. */
+private fun PlayerRuntimeController.showChapterNextEpisodeCard(
+    nextEpisode: NextEpisodeInfo,
+    silentSearch: Boolean
+): Boolean {
     val shouldEnterStillWatching = shouldEnterStillWatchingPrompt(
         stillWatchingEnabled = stillWatchingEnabledSetting,
         autoPlayNextEpisodeEnabled = streamAutoPlayNextEpisodeEnabledSetting,
@@ -490,17 +508,18 @@ private fun PlayerRuntimeController.evaluateChapterCreditsPostPlay(
     )
     if (shouldEnterStillWatching) {
         enterStillWatchingPromptMode()
-        return
+        return true
     }
     val isUnplayable = !nextEpisode.hasAired ||
         (nextEpisode.released.isNullOrBlank() && nextEpisode.available == false)
-    if (isUnplayable) return
+    if (isUnplayable) return false
 
-    if (streamAutoPlayNextEpisodeEnabledSetting && !window.hasContentAfter) {
-        playNextEpisode(silentSearch = true)
+    if (streamAutoPlayNextEpisodeEnabledSetting) {
+        playNextEpisode(silentSearch = silentSearch)
     } else {
         _uiState.update { it.copy(postPlayMode = PostPlayMode.AutoPlay(nextEpisode = nextEpisode)) }
     }
+    return true
 }
 
 private const val CREDITS_PRELOAD_LEAD_MS = 30_000L
