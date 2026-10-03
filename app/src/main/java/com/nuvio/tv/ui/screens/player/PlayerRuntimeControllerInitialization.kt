@@ -1154,7 +1154,8 @@ internal fun PlayerRuntimeController.initializePlayer(
                                 isBuffering = if (NuvioExoPlayerPerformanceHelper.shouldSuppressBufferingUi(
                                     suppressBufferingUiForSeek, seekBufferingUiDeferred, isBuffering
                                 )) false else isBuffering,
-                                playbackEnded = naturalEnded
+                                playbackEnded = naturalEnded,
+                                postPlayMode = postPlayModeForNaturalEnd(it, naturalEnded)
                             )
                         }
                         updateAudioControlAvailability()

@@ -382,6 +382,12 @@ internal fun PlayerRuntimeController.evaluatePostPlayOverlayVisibility(positionM
         }
         return
     }
+
+    PlayerNextEpisodeRules.chapterCreditsWindow(skipIntervals, effectiveDurationEarly)?.let { window ->
+        evaluateChapterCreditsPostPlay(state, positionMs, window)
+        return
+    }
+
     if (state.postPlayMode != null || state.postPlayDismissedForCurrentEpisode) return
 
     val effectiveDuration = effectiveDurationEarly
@@ -438,6 +444,80 @@ internal fun PlayerRuntimeController.evaluatePostPlayOverlayVisibility(positionM
             playNextEpisode()
         }
     }
+}
+
+/**
+ * Next-episode card driven by the credits chapter of the file (see
+ * [PlayerNextEpisodeRules.chapterCreditsWindow]):
+ * - sources are preloaded shortly before the credits;
+ * - the card appears when the credits start and is hidden when they end if a post-credits scene
+ *   or preview follows, so it never covers that scene; auto-play then happens at the natural end
+ *   of the file (see [resetPostPlayStateAfterPlaybackEnded]);
+ * - with auto-play and nothing after the credits, the source search runs silently and the card
+ *   only appears once a source was found (countdown).
+ */
+private fun PlayerRuntimeController.evaluateChapterCreditsPostPlay(
+    state: PlayerUiState,
+    positionMs: Long,
+    window: PlayerNextEpisodeRules.ChapterCreditsWindow
+) {
+    val nextEpisode = state.nextEpisode ?: return
+    val mode = state.postPlayMode
+
+    if (window.hasContentAfter && positionMs >= window.endMs) {
+        if (mode is PostPlayMode.AutoPlay && !mode.searching && mode.countdownSec == null) {
+            _uiState.update { it.copy(postPlayMode = null, postPlayDismissedForCurrentEpisode = true) }
+        }
+        return
+    }
+    if (mode != null || state.postPlayDismissedForCurrentEpisode) return
+    if (nextEpisodeAutoPlayJob?.isActive == true) return
+
+    if ((streamAutoPlayNextEpisodeEnabledSetting || preloadNextEpisodeSourcesSetting) &&
+        !nextEpisodePreloadTriggered
+    ) {
+        val leadMs = maxOf(streamAutoPlayTimeoutSecondsSetting.toLong() * 1_000L, CREDITS_PRELOAD_LEAD_MS)
+        if (positionMs >= window.startMs - leadMs) preloadNextEpisodeSources()
+    }
+    if (positionMs < window.startMs) return
+
+    val shouldEnterStillWatching = shouldEnterStillWatchingPrompt(
+        stillWatchingEnabled = stillWatchingEnabledSetting,
+        autoPlayNextEpisodeEnabled = streamAutoPlayNextEpisodeEnabledSetting,
+        nextEpisodeHasAired = nextEpisode.hasAired,
+        consecutiveAutoPlayCount = consecutiveAutoPlayCount,
+        threshold = stillWatchingEpisodeThresholdSetting,
+    )
+    if (shouldEnterStillWatching) {
+        enterStillWatchingPromptMode()
+        return
+    }
+    val isUnplayable = !nextEpisode.hasAired ||
+        (nextEpisode.released.isNullOrBlank() && nextEpisode.available == false)
+    if (isUnplayable) return
+
+    if (streamAutoPlayNextEpisodeEnabledSetting && !window.hasContentAfter) {
+        playNextEpisode(silentSearch = true)
+    } else {
+        _uiState.update { it.copy(postPlayMode = PostPlayMode.AutoPlay(nextEpisode = nextEpisode)) }
+    }
+}
+
+private const val CREDITS_PRELOAD_LEAD_MS = 30_000L
+
+/**
+ * If the file ends while a silent next-episode search (see [evaluateChapterCreditsPostPlay]) is
+ * still running, surface it as "finding source" so natural completion waits for it instead of
+ * closing the player.
+ */
+internal fun PlayerRuntimeController.postPlayModeForNaturalEnd(
+    state: PlayerUiState,
+    naturalEnded: Boolean
+): PostPlayMode? {
+    val current = state.postPlayMode
+    if (!naturalEnded || current != null || nextEpisodeAutoPlayJob?.isActive != true) return current
+    val nextEpisode = state.nextEpisode ?: return current
+    return PostPlayMode.AutoPlay(nextEpisode = nextEpisode, searching = true)
 }
 
 internal fun PlayerRuntimeController.showStreamSourceIndicator(stream: Stream) {

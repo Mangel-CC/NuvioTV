@@ -218,4 +218,38 @@ class PlayerNextEpisodeRulesTest {
     fun `an unknown duration is not away from the end`() {
         assertFalse(awayFromEnd(positionMs = 0L, durationMs = 0L))
     }
+
+    private fun chapterOutro(start: Double, end: Double) =
+        SkipInterval(startTime = start, endTime = end, type = "outro", provider = "chapters")
+
+    @Test
+    fun `chapter credits followed by a preview open a window that ends with the credits`() {
+        val window = PlayerNextEpisodeRules.chapterCreditsWindow(
+            listOf(chapterOutro(1290.0, 1380.0)),
+            durationMs = 1_420_000L
+        )!!
+
+        assertEquals(1_290_000L, window.startMs)
+        assertEquals(1_380_000L, window.endMs)
+        assertTrue(window.hasContentAfter)
+    }
+
+    @Test
+    fun `chapter credits at the end of the file have nothing after them`() {
+        val window = PlayerNextEpisodeRules.chapterCreditsWindow(
+            listOf(chapterOutro(1330.0, 1418.0)),
+            durationMs = 1_420_000L
+        )!!
+
+        assertFalse(window.hasContentAfter)
+    }
+
+    @Test
+    fun `credits from other providers or early in the episode do not open a chapter window`() {
+        val external = SkipInterval(startTime = 1290.0, endTime = 1380.0, type = "outro", provider = "introdb")
+        assertNull(PlayerNextEpisodeRules.chapterCreditsWindow(listOf(external), durationMs = 1_420_000L))
+        assertNull(
+            PlayerNextEpisodeRules.chapterCreditsWindow(listOf(chapterOutro(100.0, 190.0)), durationMs = 1_420_000L)
+        )
+    }
 }

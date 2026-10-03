@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.player
 
+import com.nuvio.tv.core.player.chapters.ChapterSkipClassifier
 import com.nuvio.tv.data.local.NextEpisodeThresholdMode
 import com.nuvio.tv.data.repository.SkipInterval
 import com.nuvio.tv.core.util.isEpisodeReleaseAired
@@ -140,6 +141,35 @@ object PlayerNextEpisodeRules {
 
     fun hasEpisodeAired(raw: String?, clock: Clock = Clock.systemDefaultZone()): Boolean {
         return isEpisodeReleaseAired(raw, clock) ?: true
+    }
+
+    /**
+     * Credits taken from the file's own chapters. The next-episode card is shown only while they
+     * play: never before the credits start, and never over what follows them (a post-credits scene
+     * or a next-episode preview), where it would cover the subtitles.
+     */
+    data class ChapterCreditsWindow(
+        val startMs: Long,
+        val endMs: Long,
+        /** True when a post-credits scene or preview follows the credits. */
+        val hasContentAfter: Boolean
+    )
+
+    fun chapterCreditsWindow(skipIntervals: List<SkipInterval>, durationMs: Long): ChapterCreditsWindow? {
+        if (durationMs <= 0L) return null
+        val credits = skipIntervals
+            .filter { it.provider == ChapterSkipClassifier.PROVIDER && it.type in OUTRO_SEGMENT_TYPES }
+            .maxByOrNull { it.endTime }
+            ?: return null
+        val startMs = (credits.startTime * 1_000.0).toLong()
+        val endMs = (credits.endTime * 1_000.0).toLong().coerceAtMost(durationMs)
+        // Credits in the first half are not the episode's closing credits.
+        if (startMs < durationMs / 2 || endMs <= startMs) return null
+        return ChapterCreditsWindow(
+            startMs = startMs,
+            endMs = endMs,
+            hasContentAfter = durationMs - endMs > POST_OUTRO_AUTOPLAY_GAP_MS
+        )
     }
 
     val OUTRO_SEGMENT_TYPES = setOf("outro", "ed", "mixed-ed")

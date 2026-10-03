@@ -265,7 +265,8 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                             // Snap the loading-logo fill to 100% once playback is
                             // ready so the logo finishes filling on dismissal.
                             loadingProgress = if (firstFrameReady && state.loadingProgress != null) 1f else state.loadingProgress,
-                            playbackEnded = naturalEnded
+                            playbackEnded = naturalEnded,
+                            postPlayMode = postPlayModeForNaturalEnd(state, naturalEnded)
                         )
                     }
                     updateMpvAvailableTracks()

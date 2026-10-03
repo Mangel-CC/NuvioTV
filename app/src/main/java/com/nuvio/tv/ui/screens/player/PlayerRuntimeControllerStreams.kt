@@ -1724,7 +1724,15 @@ internal fun PlayerRuntimeController.cancelNextEpisodePreload() {
     nextEpisodePreloadTriggered = false
 }
 
-internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = false) {
+/**
+ * @param silentSearch Search for the next episode's source without showing the card; it appears
+ *   only once a source was found (countdown). Used while the credits still play, so a
+ *   "finding source" card never covers the video for nothing.
+ */
+internal fun PlayerRuntimeController.playNextEpisode(
+    userInitiated: Boolean = false,
+    silentSearch: Boolean = false
+) {
     val nextVideo = nextEpisodeVideo ?: return
     val type = contentType ?: return
 
@@ -1739,6 +1747,7 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
     ) {
         return
     }
+    if (silentSearch && nextEpisodeAutoPlayJob?.isActive == true) return
 
     if (type.equals("cloud", ignoreCase = true)) {
         playNextCloudLibraryFile(nextVideo = nextVideo, userInitiated = userInitiated)
@@ -1746,14 +1755,16 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
     }
 
     val episodeForMode = state.nextEpisode ?: nextInfo
-    _uiState.update {
-        it.copy(
-            postPlayMode = PostPlayMode.AutoPlay(
-                nextEpisode = episodeForMode,
-                searching = true,
-            ),
-            playbackEnded = false,
-        )
+    if (!silentSearch) {
+        _uiState.update {
+            it.copy(
+                postPlayMode = PostPlayMode.AutoPlay(
+                    nextEpisode = episodeForMode,
+                    searching = true,
+                ),
+                playbackEnded = false,
+            )
+        }
     }
 
     nextEpisodeAutoPlayJob?.cancel()
