@@ -36,7 +36,31 @@ jobs:
         env:
           LOCAL_PROPERTIES_BASE64: ${{ secrets.LOCAL_PROPERTIES_BASE64 }}
           LOCAL_DEV_PROPERTIES_BASE64: ${{ secrets.LOCAL_DEV_PROPERTIES_BASE64 }}
-          FORK_SECRETS_JSON: ${{ toJSON(secrets) }}
+          NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+          NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+          NUVIO_SUPABASE_FALLBACK_URL: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
+          TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
+          TRAKT_REDIRECT_URI: ${{ secrets.TRAKT_REDIRECT_URI }}
+          TRAKT_API_URL: ${{ secrets.TRAKT_API_URL }}
+          SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
+          SIMKL_APP_NAME: ${{ secrets.SIMKL_APP_NAME }}
+          MDBLIST_CLIENT_ID: ${{ secrets.MDBLIST_CLIENT_ID }}
+          PREMIUMIZE_CLIENT_ID: ${{ secrets.PREMIUMIZE_CLIENT_ID }}
+          INTRODB_API_URL: ${{ secrets.INTRODB_API_URL }}
+          PARENTAL_GUIDE_API_URL: ${{ secrets.PARENTAL_GUIDE_API_URL }}
+          TRAILER_API_URL: ${{ secrets.TRAILER_API_URL }}
+          IMDB_RATINGS_API_BASE_URL: ${{ secrets.IMDB_RATINGS_API_BASE_URL }}
+          IMDB_TAPFRAME_API_BASE_URL: ${{ secrets.IMDB_TAPFRAME_API_BASE_URL }}
+          TV_LOGIN_WEB_BASE_URL: ${{ secrets.TV_LOGIN_WEB_BASE_URL }}
+          DEVICE_LOGIN_WEB_BASE_URL: ${{ secrets.DEVICE_LOGIN_WEB_BASE_URL }}
+          AVATAR_PUBLIC_BASE_URL: ${{ secrets.AVATAR_PUBLIC_BASE_URL }}
+          UNIQUE_CONTRIBUTIONS_BASE_URL: ${{ secrets.UNIQUE_CONTRIBUTIONS_BASE_URL }}
+          PLAYBACK_REPORTS_BASE_URL: ${{ secrets.PLAYBACK_REPORTS_BASE_URL }}
+          SUPPORTERS_API_BASE_URL: ${{ secrets.SUPPORTERS_API_BASE_URL }}
+          SUPPORT_URL: ${{ secrets.SUPPORT_URL }}
+          SPONSOR_NAMES: ${{ secrets.SPONSOR_NAMES }}
         run: |
           if [ -n "$LOCAL_PROPERTIES_BASE64" ]; then
             printf '%s' "$LOCAL_PROPERTIES_BASE64" | base64 --decode > local.properties
