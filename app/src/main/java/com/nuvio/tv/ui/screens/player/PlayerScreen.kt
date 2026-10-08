@@ -562,6 +562,8 @@ fun PlayerScreen(
         focusPlayAfterMoreBack = false
     }
 
+    val volumeController = remember { PlayerVolumeController(context) }
+
     val transparentLetterbox = uiState.transparentLetterbox &&
         uiState.internalPlayerEngine != InternalPlayerEngine.MVP_PLAYER
     DisposableEffect(transparentLetterbox) {
@@ -579,6 +581,9 @@ fun PlayerScreen(
             .focusRequester(containerFocusRequester)
             .focusable(enabled = uiState.error == null)
             .onPreviewKeyEvent { keyEvent ->
+                if (volumeController.handleKey(keyEvent.nativeKeyEvent)) {
+                    return@onPreviewKeyEvent true
+                }
                 // Consume the confirm KEY_UP that opened the subtitle timing dialog before
                 // the newly focused "Sync" button can treat it as a second click. Preview
                 // is required: after open, focus moves into the dialog so onKeyEvent on
@@ -1718,6 +1723,14 @@ fun PlayerScreen(
                 onDismiss = { viewModel.onEvent(PlayerEvent.OnDismissTransientOverlay) }
             )
         }
+
+        // Fork: own volume indicator at the top so the system bar does not cover subtitles.
+        PlayerVolumeIndicator(
+            controller = volumeController,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .zIndex(5f)
+        )
     }
 }
 
