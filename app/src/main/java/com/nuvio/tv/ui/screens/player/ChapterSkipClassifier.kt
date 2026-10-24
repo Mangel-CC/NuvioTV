@@ -1,0 +1,190 @@
+package com.nuvio.tv.ui.screens.player
+
+import com.nuvio.tv.data.repository.SkipInterval
+import java.text.Normalizer
+import java.util.Locale
+
+/**
+ * Turns embedded container chapters into [SkipInterval]s by recognising the usual chapter names
+ * for intros, recaps, endings/credits and next-episode previews (English and romanised Japanese,
+ * as used by anime fansub/BD releases).
+ *
+ * Only the start of a title is matched ("Opening", "OP - Song name", "Ending Credits"), so story
+ * chapters such as "The Ending" or "Opening Night" are not mistaken for skippable segments.
+ */
+internal object ChapterSkipClassifier {
+
+    const val PROVIDER = "chapters"
+
+    const val TYPE_INTRO = "intro"
+    const val TYPE_RECAP = "recap"
+    const val TYPE_OUTRO = "outro"
+    const val TYPE_MOVIE_CREDITS = "movie-credits"
+    const val TYPE_PREVIEW = "preview"
+
+    /**
+     * "Prologue" chapters are a recap in some releases and new story in others, so they get a
+     * manual Skip button only: no AutoSkipSegmentType maps to this type, so it is never auto-skipped.
+     */
+    const val TYPE_PROLOGUE = "prologue"
+
+    private const val MAX_INTRO_MS = 5 * 60_000L
+    private const val MAX_RECAP_MS = 6 * 60_000L
+    private const val MAX_PREVIEW_MS = 3 * 60_000L
+    private const val MAX_OUTRO_MS = 15 * 60_000L
+    private const val MIN_SEGMENT_MS = 3_000L
+
+    private enum class Kind { INTRO, WEAK_INTRO, RECAP, PROLOGUE, OUTRO, PREVIEW }
+
+    // Leading numbering such as "01 ", "1. ", "chapter 3 - ", "ch 2: ".
+    private val leadingNumbering = Regex("^(?:(?:chapter|chap|ch)\\s*)?\\d{1,3}\\s*[-.:)]?\\s+")
+
+    private val introPattern = Regex(
+        "^(?:op\\d*|opening(?:\\s+(?:theme|song|credits|titles?|sequence))?|" +
+            "intro\\s+(?:song|theme|credits|sequence)|" +
+            "title\\s+sequence|main\\s+titles?|theme\\s+song|" +
+            // es / pt / fr / it / de
+            "apertura|abertura|creditos\\s+(?:iniciales|de\\s+apertura|de\\s+entrada)|cabecera|" +
+            "generique\\s+(?:de\\s+debut|d\\s*ouverture)|sigla\\s+(?:iniziale|d\\s*apertura)|sigla$|vorspann|" +
+            "o{1,2}p[uū]ningu|opuningu|oupuningu)\\b"
+    )
+    // A bare "Intro" is the opening theme unless the file also has an explicit Opening/OP chapter;
+    // then it is the episode's cold open (e.g. "Intro" followed by "Opening").
+    private val weakIntroPattern = Regex("^intro\\b")
+    private val prologuePattern = Regex("^(?:prologue|prolog|purorogu)\\b")
+    private val recapPattern = Regex(
+        "^(?:recap|previously(?:\\s+on)?|last\\s+time|" +
+            "zenkai(?:\\s+no\\s+arasuji)?|arasuji|matome|" +
+            // es / pt / fr / it / de
+            "resumen|recapitulacion|anteriormente(?:\\s+en)?|previamente|resumo|" +
+            "resume|precedemment|riassunto|ruckblick)\\b"
+    )
+    private val outroPattern = Regex(
+        "^(?:ed\\d*|ending(?:\\s+(?:theme|song|credits|titles?|sequence))?|" +
+            "outro(?:\\s+(?:song|theme|credits))?|" +
+            "(?:end|closing|ending)\\s+credits|credits|staff\\s+roll|" +
+            // es / pt / fr / it / de
+            "creditos(?:\\s+(?:finales|finais|de\\s+cierre))?|cierre|encerramento|" +
+            "generique(?:\\s+de\\s+fin)?|titoli\\s+di\\s+coda|sigla\\s+finale|abspann|" +
+            "e{1,2}ndingu|endingu)\\b"
+    )
+    private val previewPattern = Regex(
+        "^(?:preview|(?:episode|ep)\\s+preview|next\\s+(?:episode|ep|time)(?:\\s+preview)?|next\\s+on|" +
+            "jikai(?:\\s+yokoku)?|yokoku|" +
+            // es / pt / fr / it / de
+            "avance|adelanto|(?:proximo|siguiente)\\s+(?:episodio|capitulo)|previa|" +
+            "bande\\s+annonce|prochain\\s+episode|anteprima|vorschau)\\b"
+    )
+
+    /**
+     * @param chapters Chapters in any order.
+     * @param durationMs Media duration, used as the end of a final chapter with no declared end.
+     *   Pass 0 or a negative value when unknown.
+     * @param isMovie Whether the content is a movie; ending/credits chapters then map to
+     *   [TYPE_MOVIE_CREDITS] instead of [TYPE_OUTRO].
+     */
+    fun toSkipIntervals(
+        chapters: List<PlayerChapter>,
+        durationMs: Long,
+        isMovie: Boolean
+    ): List<SkipInterval> {
+        if (chapters.isEmpty()) return emptyList()
+        val sorted = chapters
+            .filter { it.startMs >= 0L }
+            .sortedBy { it.startMs }
+            .distinctBy { it.startMs }
+        val kinds = sorted.map { classify(it.title) }
+        val hasExplicitOpening = kinds.any { it == Kind.INTRO }
+        val result = ArrayList<SkipInterval>()
+        sorted.forEachIndexed { index, chapter ->
+            val kind = when (val raw = kinds[index]) {
+                Kind.WEAK_INTRO -> if (hasExplicitOpening) null else Kind.INTRO
+                else -> raw
+            } ?: return@forEachIndexed
+            val nextStart = sorted.getOrNull(index + 1)?.startMs
+            val endMs = nextStart
+                ?: durationMs.takeIf { it > chapter.startMs }
+                ?: return@forEachIndexed
+            val lengthMs = endMs - chapter.startMs
+            val maxMs = when (kind) {
+                Kind.INTRO, Kind.WEAK_INTRO -> MAX_INTRO_MS
+                Kind.RECAP, Kind.PROLOGUE -> MAX_RECAP_MS
+                Kind.PREVIEW -> MAX_PREVIEW_MS
+                Kind.OUTRO -> MAX_OUTRO_MS
+            }
+            if (lengthMs < MIN_SEGMENT_MS || lengthMs > maxMs) return@forEachIndexed
+            val type = when (kind) {
+                Kind.INTRO, Kind.WEAK_INTRO -> TYPE_INTRO
+                Kind.RECAP -> TYPE_RECAP
+                Kind.PROLOGUE -> TYPE_PROLOGUE
+                Kind.PREVIEW -> TYPE_PREVIEW
+                Kind.OUTRO -> if (isMovie) TYPE_MOVIE_CREDITS else TYPE_OUTRO
+            }
+            result += SkipInterval(
+                startTime = chapter.startMs / 1000.0,
+                endTime = endMs / 1000.0,
+                type = type,
+                provider = PROVIDER
+            )
+        }
+        return mergeAdjacent(result)
+    }
+
+    /** Joins back-to-back segments of the same type (e.g. "Ending" followed by "Credits"). */
+    private fun mergeAdjacent(intervals: List<SkipInterval>): List<SkipInterval> {
+        if (intervals.size < 2) return intervals
+        val merged = ArrayList<SkipInterval>(intervals.size)
+        for (interval in intervals) {
+            val last = merged.lastOrNull()
+            if (last != null && last.type == interval.type &&
+                interval.startTime - last.endTime <= 1.0
+            ) {
+                merged[merged.lastIndex] = last.copy(endTime = maxOf(last.endTime, interval.endTime))
+            } else {
+                merged += interval
+            }
+        }
+        return merged
+    }
+
+    // Japanese titles in kana/kanji, matched on the raw title (NFKD would split the dakuten).
+    private val kanaIntro = Regex("^\\s*(?:オープニング|ＯＰ|OP)(?![A-Za-z])")
+    private val kanaRecap = Regex("^\\s*(?:前回のあらすじ|あらすじ|前回)")
+    private val kanaOutro = Regex("^\\s*(?:エンディング|ＥＤ|スタッフロール)")
+    private val kanaPreview = Regex("^\\s*(?:次回予告|予告)")
+    private val kanaPrologue = Regex("^\\s*(?:プロローグ)")
+
+    private fun classify(rawTitle: String?): Kind? {
+        if (rawTitle == null) return null
+        when {
+            kanaIntro.containsMatchIn(rawTitle) -> return Kind.INTRO
+            kanaRecap.containsMatchIn(rawTitle) -> return Kind.RECAP
+            kanaOutro.containsMatchIn(rawTitle) -> return Kind.OUTRO
+            kanaPreview.containsMatchIn(rawTitle) -> return Kind.PREVIEW
+            kanaPrologue.containsMatchIn(rawTitle) -> return Kind.PROLOGUE
+        }
+        val title = normalize(rawTitle)
+        if (title.isEmpty()) return null
+        return when {
+            introPattern.containsMatchIn(title) -> Kind.INTRO
+            weakIntroPattern.containsMatchIn(title) -> Kind.WEAK_INTRO
+            prologuePattern.containsMatchIn(title) -> Kind.PROLOGUE
+            recapPattern.containsMatchIn(title) -> Kind.RECAP
+            outroPattern.containsMatchIn(title) -> Kind.OUTRO
+            previewPattern.containsMatchIn(title) -> Kind.PREVIEW
+            else -> null
+        }
+    }
+
+    internal fun normalize(title: String): String {
+        val decomposed = Normalizer.normalize(title, Normalizer.Form.NFKD)
+            .replace(Regex("\\p{M}+"), "")
+            .lowercase(Locale.ROOT)
+        return decomposed
+            .replace(Regex("[\\[\\](){}「」『』【】\"'“”‘’_~|/\\\\]+"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+            .replace(leadingNumbering, "")
+            .trim()
+    }
+}

@@ -12,6 +12,24 @@ internal fun PlayerRuntimeController.refreshMpvChapters(view: NuvioMpvSurfaceVie
     if (chapters.isEmpty()) return
     mpvChaptersStreamUrl = currentStreamUrl
     _uiState.update { it.copy(chapters = chapters) }
+    updateChapterSkipIntervals(chapters)
+}
+
+/**
+ * Skip intervals read from the chapter titles; empty when the setting is off or the file names none.
+ * [chapters] are remembered so toggling the setting mid-playback can recompute them.
+ */
+internal fun PlayerRuntimeController.updateChapterSkipIntervals(chapters: List<PlayerChapter> = fileChapters) {
+    fileChapters = chapters
+    chapterSkipIntervals = if (chaptersForSkipEnabled && skipIntroEnabled) {
+        ChapterSkipClassifier.toSkipIntervals(
+            chapters = chapters,
+            durationMs = currentPlaybackDurationMs(),
+            isMovie = contentType.equals("movie", ignoreCase = true)
+        )
+    } else {
+        emptyList()
+    }
 }
 
 /**
@@ -65,9 +83,14 @@ internal fun PlayerRuntimeController.loadExoChapters() {
     val url = currentStreamUrl
     val headers = currentHeaders
     exoChapterLoadJob = scope.launch {
-        if (!playerSettingsDataStore.playerSettings.first().exoChaptersEnabled) return@launch
+        val settings = playerSettingsDataStore.playerSettings.first()
+        val usedForSkip = settings.chaptersForSkipEnabled && settings.skipIntroEnabled
+        if (!settings.exoChaptersEnabled && !usedForSkip) return@launch
         val chapters = MatroskaChapterLoader.load(url, headers)
         if (chapters.isEmpty() || isUsingMpvEngine() || currentStreamUrl != url) return@launch
-        _uiState.update { it.copy(chapters = chapters) }
+        // The Chapters button and progress-bar marks keep following their own toggle; the skip
+        // buttons only need the list.
+        if (settings.exoChaptersEnabled) _uiState.update { it.copy(chapters = chapters) }
+        updateChapterSkipIntervals(chapters)
     }
 }

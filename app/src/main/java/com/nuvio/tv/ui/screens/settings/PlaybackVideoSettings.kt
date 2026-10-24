@@ -145,6 +145,13 @@ internal fun PlaybackVideoSection(
             onToggle = { onUpdate { setExoChaptersEnabled(!settings.exoChaptersEnabled) } },
             enabled = enabled
         )
+        SettingsToggleRow(
+            title = stringResource(R.string.playback_chapters_for_skip_title),
+            subtitle = stringResource(R.string.playback_chapters_for_skip_sub),
+            checked = settings.chaptersForSkipEnabled,
+            onToggle = { onUpdate { setChaptersForSkipEnabled(!settings.chaptersForSkipEnabled) } },
+            enabled = enabled
+        )
     }
 
     if (settings.usesMpvEngine) {

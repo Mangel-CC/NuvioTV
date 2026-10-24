@@ -525,7 +525,18 @@ class PlayerRuntimeController(
     internal var pendingBackgroundCrashRecovery: Boolean = false
     internal var backgroundCrashSavedPositionMs: Long = 0L
 
-    internal var skipIntervals: List<SkipInterval> = emptyList()
+    /** IntroDB / AniSkip / AnimeSkip. Chapters, when present and enabled, take precedence (see [skipIntervals]). */
+    internal var remoteSkipIntervals: List<SkipInterval> = emptyList()
+        private set(value) { field = value; mergedSkipIntervals = SkipIntervalMerge.merge(chapterSkipIntervals, value) }
+    internal var chapterSkipIntervals: List<SkipInterval> = emptyList()
+        set(value) { field = value; mergedSkipIntervals = SkipIntervalMerge.merge(value, remoteSkipIntervals) }
+    private var mergedSkipIntervals: List<SkipInterval> = emptyList()
+    internal var chaptersForSkipEnabled: Boolean = true
+    /** Chapters of the current file, kept apart from the UI list so the skip buttons work with the Chapters button off. */
+    internal var fileChapters: List<PlayerChapter> = emptyList()
+    internal var skipIntervals: List<SkipInterval>
+        get() = mergedSkipIntervals
+        set(value) { remoteSkipIntervals = value }
     internal var skipIntroEnabled: Boolean = true
     internal var parentalGuideEnabled: Boolean = false
     internal var autoSkipSegmentTypes: Set<AutoSkipSegmentType> = emptySet()

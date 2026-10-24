@@ -243,6 +243,10 @@ class PlaybackSettingsViewModel @Inject constructor(
         playerSettingsDataStore.setExoChaptersEnabled(enabled)
     }
 
+    suspend fun setChaptersForSkipEnabled(enabled: Boolean) {
+        playerSettingsDataStore.setChaptersForSkipEnabled(enabled)
+    }
+
     suspend fun setUseLibass(enabled: Boolean) {
         playerSettingsDataStore.setUseLibass(enabled)
     }

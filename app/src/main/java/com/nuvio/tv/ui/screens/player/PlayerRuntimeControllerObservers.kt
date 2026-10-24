@@ -473,6 +473,10 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
 
             val wasEnabled = skipIntroEnabled
             skipIntroEnabled = settings.skipIntroEnabled
+            if (chaptersForSkipEnabled != settings.chaptersForSkipEnabled || wasEnabled != skipIntroEnabled) {
+                chaptersForSkipEnabled = settings.chaptersForSkipEnabled
+                updateChapterSkipIntervals()
+            }
             parentalGuideEnabled = settings.parentalGuideEnabled
             autoSkipSegmentTypes = settings.autoSkipSegmentTypes
             playerSettingsInitialized = true

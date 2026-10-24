@@ -810,6 +810,8 @@
     <string name="playback_true_black_letterbox_sub">Leave the bars around the picture unpainted so HDR stays true black. Keep this off if a bright line appears on the bars.</string>
     <string name="playback_chapters_label">Chapters</string>
     <string name="playback_exo_chapters_title">Show Chapters (ExoPlayer)</string>
+    <string name="playback_chapters_for_skip_title">Use Chapters for Skip Buttons</string>
+    <string name="playback_chapters_for_skip_sub">Detect intro, recap and ending from the file's own chapters (Opening, Recap, Ending...). IntroDB and the other sources are used for whatever the chapters do not cover. With ExoPlayer this also reads the chapters of MKV files.</string>
     <string name="playback_exo_chapters_sub">Read the chapters of MKV files to mark them on the progress bar and skip between them. Makes a few small extra requests once playback starts. mpv always shows chapters.</string>
     <string name="audio_trailer_section">Trailer</string>
     <string name="audio_autoplay_trailers">Auto-play Trailers</string>
